@@ -64,6 +64,12 @@ public class SlideshowWallpaperService extends WallpaperService {
         private boolean visible;
         private int textSize;
 
+        private int transitionDurationMillis;
+        private int deltaOpacity;
+        private int transitionFrameRate;
+        private int frames;
+        private boolean transitioning;
+
         private int currentIndex;
         private int listLength;
 
@@ -90,6 +96,12 @@ public class SlideshowWallpaperService extends WallpaperService {
             textPaint.setAntiAlias(true);
             textPaint.setColor(Color.WHITE);
             textPaint.setStyle(Paint.Style.FILL);
+
+            transitionDurationMillis = 1000;
+            transitionFrameRate = 60;
+            deltaOpacity = 255 / (transitionDurationMillis / 1000 * transitionFrameRate);
+            transitioning = true;
+
 
             float scale = getResources().getDisplayMetrics().density;
             textSize = (int) (10f * scale + 0.5f);
@@ -257,14 +269,28 @@ public class SlideshowWallpaperService extends WallpaperService {
                         if (bitmap != null) {
                             currentImageHeight = bitmap.getHeight();
                             currentImageWidth = bitmap.getWidth();
+                            Paint opacityPaint = new Paint();
+                            frames ++;
+                            opacityPaint.setAlpha(Math.min(frames * deltaOpacity, 255));
+                            if (transitioning) {
+
+                                if (opacityPaint.getAlpha() + deltaOpacity >= 255) {
+                                    transitioning = false;
+                                    opacityPaint.setAlpha(255);
+                                    frames = 0;
+                                }
+                            }
+
+                            Bitmap outImage = lastRenderedImage.getImage();
 
                             SharedPreferencesManager.TooWideImagesRule rule = manager.getTooWideImagesRule(getResources());
                             if (rule == SharedPreferencesManager.TooWideImagesRule.SCALE_DOWN) {
-                                canvas.drawBitmap(bitmap, ImageLoader.calculateMatrixScaleToFit(bitmap, width, height, true), null);
+                                if (transitioning) canvas.drawBitmap(outImage, ImageLoader.calculateMatrixScaleToFit(outImage, width, height, true), null);
+                                canvas.drawBitmap(bitmap, ImageLoader.calculateMatrixScaleToFit(bitmap, width, height, true), opacityPaint);
                             } else if (rule == SharedPreferencesManager.TooWideImagesRule.SCALE_UP || rule == SharedPreferencesManager.TooWideImagesRule.SCROLL_FORWARD || rule == SharedPreferencesManager.TooWideImagesRule.SCROLL_BACKWARD) {
                                 canvas.save();
                                 canvas.translate(deltaX, 0);
-                                canvas.drawBitmap(bitmap, ImageLoader.calculateMatrixScaleToFit(bitmap, width, height, false), null);
+                                canvas.drawBitmap(bitmap, ImageLoader.calculateMatrixScaleToFit(bitmap, width, height, false), opacityPaint);
                                 canvas.restore();
                             }
 
@@ -287,8 +313,12 @@ public class SlideshowWallpaperService extends WallpaperService {
                 }
                 handler.removeCallbacks(drawRunner);
                 if (visible) {
-
-                    handler.postDelayed(drawRunner, calculateNextUpdateInSeconds() * 1000);
+                    if (transitioning) {
+                        handler.postDelayed(drawRunner, 1000 / transitionFrameRate);
+                    } else {
+                        handler.postDelayed(drawRunner, calculateNextUpdateInSeconds() * 1000);
+                        transitioning = true;
+                    }
                 }
             }
         }
